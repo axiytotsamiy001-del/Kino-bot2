@@ -3,7 +3,7 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
 TOKEN = "8703304211:AAFU-OPeISDFzWoFvnjOxlcFl1udjH7aSxI"
-ADMIN_ID =8703304211   # o‘zingni id
+ADMIN_ID = 8703304211   # o‘zingni id
 
 CHANNEL = "@talim_guruhii"  # majburiy obuna kanali
 
