@@ -1,131 +1,124 @@
-import json
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
 TOKEN = "8703304211:AAFU-OPeISDFzWoFvnjOxlcFl1udjH7aSxI"
-ADMIN_ID = 867449036   # o‘zingni id
+ADMIN_ID = 867449036
 
-CHANNEL = "@talim_guruhii"  # majburiy obuna kanali
-
-# 📦 DATABASE
-try:
-    with open("db.json", "r") as f:
-        movies = json.load(f)
-except:
-    movies = {}
-
-def save():
-    with open("db.json", "w") as f:
-        json.dump(movies, f)
-
-# 🔒 OBUNA TEKSHIRISH
-async def check_sub(update, context):
-    user_id = update.effective_user.id
-    try:
-        member = await context.bot.get_chat_member(CHANNEL, user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except:
-        return False
+movies = {}
+user_state = {}
 
 # 🎬 START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if not await check_sub(update, context):
-        await update.message.reply_text(f"❗ Avval kanalga qo‘shiling:\n{CHANNEL}")
-        return
-
-    if user_id == ADMIN_ID:
-        keyboard = [
-            ["🎬 Film yuklash"],
-            ["📊 Statistika", "📩 Xabarnoma"],
-            ["⚙️ Sozlamalar"]
-        ]
-    else:
-        keyboard = [
-            ["🎬 Kinolar menyusi"],
-            ["🔎 Kino qidirish"],
-            ["⭐ Top kinolar"]
-        ]
+    keyboard = [
+        [InlineKeyboardButton("🎬 Kinolar", callback_data="movies")],
+        [InlineKeyboardButton("🔎 Qidirish", callback_data="search")]
+    ]
 
     await update.message.reply_text(
-        "👋 Xush kelibsiz!",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        "🎥 Menyuni tanlang:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# 🧠 STATE
-state = {}
+# 🔘 BUTTONS
+async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
 
-# 📩 HANDLE
+    if query.data == "movies":
+        if not movies:
+            await query.edit_message_text("❌ Kino yo‘q")
+            return
+
+        keyboard = []
+        for name in movies:
+            keyboard.append([InlineKeyboardButton(name, callback_data=f"movie_{name}")])
+
+        await query.edit_message_text(
+            "🎬 Kinolar:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data.startswith("movie_"):
+        name = query.data.split("_", 1)[1]
+        file_id = movies.get(name)
+
+        if file_id:
+            await context.bot.send_video(
+                chat_id=query.message.chat_id,
+                video=file_id,
+                caption=f"🎬 {name}"
+            )
+
+    elif query.data == "search":
+        user_state[user_id] = "search"
+        await query.edit_message_text("🔎 Kino nomini yozing")
+
+# 💬 USER MESSAGE
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
 
-    if not await check_sub(update, context):
-        await update.message.reply_text(f"❗ Kanalga qo‘shiling:\n{CHANNEL}")
-        return
-
-    # 🔎 QIDIRISH
-    if text == "🔎 Kino qidirish":
-        state[user_id] = "search"
-        await update.message.reply_text("Kino nomini yozing")
-        return
-
-    # 🎬 ADMIN ADD
-    if text == "🎬 Film yuklash" and user_id == ADMIN_ID:
-        state[user_id] = "add_name"
-        await update.message.reply_text("Kino nomi:")
-        return
-
-    # ➕ NOM
-    if state.get(user_id) == "add_name":
-        state[user_id] = {"name": text}
-        await update.message.reply_text("Link yubor:")
-        return
-
-    # ➕ LINK
-    if isinstance(state.get(user_id), dict):
-        name = state[user_id]["name"]
-        movies[name.lower()] = text
-        save()
-
-        state[user_id] = None
-        await update.message.reply_text("✅ Saqlandi")
-        return
-
     # 🔎 SEARCH
-    if state.get(user_id) == "search":
-        result = movies.get(text.lower())
+    if user_state.get(user_id) == "search":
+        res = movies.get(text.lower())
 
-        if result:
-            await update.message.reply_text(f"🎬 {text}\n🔗 {result}")
+        if res:
+            await context.bot.send_video(
+                chat_id=update.effective_chat.id,
+                video=res,
+                caption=f"🎬 {text}"
+            )
         else:
             await update.message.reply_text("❌ Topilmadi")
 
+        user_state[user_id] = None
         return
 
-    # 🎬 MENU
-    if text == "🎬 Kinolar menyusi":
-        if movies:
-            msg = "\n".join([f"🎬 {k}" for k in movies.keys()])
-            await update.message.reply_text(msg)
+# 👑 ADMIN COMMAND
+async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    user_state[update.effective_user.id] = "add_name"
+    await update.message.reply_text("🎬 Kino nomini yozing")
+
+# 👑 ADMIN HANDLE
+async def admin_handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if user_id != ADMIN_ID:
+        return
+
+    # kino nomi
+    if user_state.get(user_id) == "add_name":
+        user_state[user_id] = {"name": update.message.text}
+        await update.message.reply_text("🎥 Endi kino VIDEONI yubor")
+        return
+
+    # video qabul qilish
+    if isinstance(user_state.get(user_id), dict):
+        if update.message.video:
+            file_id = update.message.video.file_id
+            name = user_state[user_id]["name"]
+
+            movies[name.lower()] = file_id
+            user_state[user_id] = None
+
+            await update.message.reply_text("✅ Kino saqlandi")
         else:
-            await update.message.reply_text("Hali kino yo‘q")
+            await update.message.reply_text("❗ Video yubor")
+
         return
 
-    # ⭐ TOP
-    if text == "⭐ Top kinolar":
-        if movies:
-            first = list(movies.items())[:5]
-            msg = "\n".join([f"🔥 {k}" for k,v in first])
-            await update.message.reply_text(msg)
-        return
-
-# 🤖 RUN
+# 🤖 APP
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("add", add))
+app.add_handler(CallbackQueryHandler(buttons))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+app.add_handler(MessageHandler(filters.ALL, admin_handle))
 
-print("🔥 FULL PRO BOT ISHLAYAPTI")
+print("🔥 FULL VIDEO BOT ISHLAYAPTI")
 app.run_polling()
